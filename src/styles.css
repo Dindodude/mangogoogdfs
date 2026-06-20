@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  color: #141414;
-  background: #fbfaf8;
+  color: #09090b;
+  background: #f5f3ef;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -23,6 +23,19 @@ button {
   font: inherit;
 }
 
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+::selection {
+  background: #064e3b;
+  color: white;
+}
+
 @media print {
   body {
     background: white;
@@ -39,5 +52,12 @@ button {
   .print-panel {
     box-shadow: none !important;
     border: 1px solid #ddd !important;
+  }
+
+  aside,
+  header,
+  nav,
+  .no-print {
+    display: none !important;
   }
 }
