@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Boxes, Command, LayoutDashboard, Search, Settings, ShoppingCart, Users } from "lucide-react";
+import { BarChart3, Boxes, Command, Download, LayoutDashboard, Search, Settings, ShoppingCart, Sparkles, Users } from "lucide-react";
 import type { ModuleKey } from "./types";
 import { Shell } from "./components/Shell";
-import { Button, Modal } from "./components/ui";
+import { Button, Input, Modal, ToastMessage, ToastViewport } from "./components/ui";
 import { useMockDb } from "./hooks/useMockDb";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { OrdersModule } from "./features/orders/OrdersModule";
@@ -36,6 +36,13 @@ export default function App() {
   const [activeModule, setActiveModule] = useState<ModuleKey>("dashboard");
   const [globalSearch, setGlobalSearch] = useState("");
   const [commandOpen, setCommandOpen] = useState(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  function notify(title: string, description?: string, tone: ToastMessage["tone"] = "success") {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setToasts((current) => [...current, { id, title, description, tone }]);
+    window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 3800);
+  }
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -68,10 +75,22 @@ export default function App() {
           <OrdersModule
             db={db}
             globalSearch={globalSearch}
-            createOrder={createOrder}
-            updateOrderStatus={updateOrderStatus}
-            updatePackingStatus={updatePackingStatus}
-            generateInvoice={generateInvoice}
+            createOrder={(input) => {
+              createOrder(input);
+              notify("Preorder submitted", "Order created, invoice number assigned, and audit trail updated.");
+            }}
+            updateOrderStatus={(orderId, status) => {
+              updateOrderStatus(orderId, status);
+              notify("Order status updated", `Moved to ${status}.`);
+            }}
+            updatePackingStatus={(orderId, status) => {
+              updatePackingStatus(orderId, status);
+              notify("Packing status updated", `Packing is now ${status}.`);
+            }}
+            generateInvoice={(orderId) => {
+              generateInvoice(orderId);
+              notify("Invoice regenerated", "A new invoice number was added to the audit trail.");
+            }}
           />
         );
       case "products":
@@ -79,8 +98,14 @@ export default function App() {
           <ProductsModule
             db={db}
             updateProduct={updateProduct}
-            addProduct={addProduct}
-            duplicateYesterdayPrices={duplicateYesterdayPrices}
+            addProduct={(input) => {
+              addProduct(input);
+              notify("SKU added", `${input.name} is active for preorder.`);
+            }}
+            duplicateYesterdayPrices={() => {
+              duplicateYesterdayPrices();
+              notify("Prices duplicated", "Yesterday's price sheet is now today's active price sheet.");
+            }}
           />
         );
       case "customers":
@@ -88,7 +113,19 @@ export default function App() {
       case "reports":
         return <ReportsModule db={db} />;
       case "settings":
-        return <SettingsModule settings={db.settings} updateSettings={updateSettings} reset={reset} />;
+        return (
+          <SettingsModule
+            settings={db.settings}
+            updateSettings={(patch) => {
+              updateSettings(patch);
+              notify("Settings updated", "Operating cycle configuration saved.");
+            }}
+            reset={() => {
+              reset();
+              notify("Demo data reset", "Local mock database restored.", "neutral");
+            }}
+          />
+        );
       default:
         return <Dashboard db={db} />;
     }
@@ -134,7 +171,12 @@ export default function App() {
           setActiveModule("orders");
           setCommandOpen(false);
         }}
+        onSearch={(query) => {
+          setGlobalSearch(query);
+          setCommandOpen(false);
+        }}
       />
+      <ToastViewport messages={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
     </>
   );
 }
@@ -144,32 +186,52 @@ function CommandPalette({
   onClose,
   onModuleChange,
   onNewOrder,
+  onSearch,
 }: {
   open: boolean;
   onClose: () => void;
   onModuleChange: (module: ModuleKey) => void;
   onNewOrder: () => void;
+  onSearch: (query: string) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const commands = [
+    { id: "new-order", label: "Create new preorder", hint: "Start customer-first order workflow", icon: ShoppingCart, action: onNewOrder },
+    { id: "search-pending", label: "Find pending confirmations", hint: "Filter global search to submitted work", icon: Search, action: () => onSearch("Submitted") },
+    { id: "export", label: "Open export-ready orders", hint: "Go to Orders for CSV/PDF actions", icon: Download, action: () => onModuleChange("orders") },
+    { id: "reports", label: "Open revenue reports", hint: "View daily sales and demand charts", icon: BarChart3, action: () => onModuleChange("reports") },
+    ...((Object.keys(moduleMeta) as ModuleKey[]).map((module) => ({
+      id: module,
+      label: `Go to ${moduleMeta[module].label}`,
+      hint: "Navigate workspace",
+      icon: moduleMeta[module].icon,
+      action: () => onModuleChange(module),
+    }))),
+  ];
+  const filteredCommands = commands.filter((command) => `${command.label} ${command.hint}`.toLowerCase().includes(query.toLowerCase()));
+
   return (
     <Modal open={open} title="Command palette" onClose={onClose}>
-      <div className="mb-4 flex items-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-500">
-        <Search size={16} /> Type-to-search command palette mock. Shortcuts: N new order, / search, Ctrl/Cmd K commands.
-      </div>
+      <label className="relative mb-4 block">
+        <Search className="absolute left-3 top-2.5 text-zinc-400" size={17} />
+        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search commands, modules, exports..." className="w-full pl-9" autoFocus />
+      </label>
       <div className="grid gap-2">
-        <Button variant="secondary" onClick={onNewOrder} className="justify-start">
-          <ShoppingCart size={16} /> Create new preorder
-        </Button>
-        {(Object.keys(moduleMeta) as ModuleKey[]).map((module) => {
-          const Icon = moduleMeta[module].icon;
+        {filteredCommands.map((command) => {
+          const Icon = command.icon;
           return (
-            <Button key={module} variant="ghost" onClick={() => onModuleChange(module)} className="justify-start">
-              <Icon size={16} /> Go to {moduleMeta[module].label}
+            <Button key={command.id} variant={command.id === "new-order" ? "secondary" : "ghost"} onClick={command.action} className="h-auto justify-start py-3">
+              <Icon size={16} />
+              <span className="text-left">
+                <span className="block">{command.label}</span>
+                <span className="block text-xs font-normal text-zinc-500">{command.hint}</span>
+              </span>
             </Button>
           );
         })}
         <div className="mt-2 rounded-xl bg-zinc-50 p-3 text-xs text-zinc-500">
-          <Command className="mr-1 inline" size={13} />
-          In production this becomes an indexed command system for order lookup, customer search, exports, quick edits, and route actions.
+          <Command className="mr-1 inline" size={13} /> Shortcuts: <strong>N</strong> new order, <strong>/</strong> search, <strong>Ctrl/Cmd K</strong> commands, <strong>Esc</strong> close.
+          <Sparkles className="ml-2 mr-1 inline" size={13} /> Designed for high-volume operators who should not be hunting through menus.
         </div>
       </div>
     </Modal>

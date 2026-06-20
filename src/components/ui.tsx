@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
-import { X } from "lucide-react";
+import { CheckCircle2, Info, X } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -140,6 +140,37 @@ export function Modal({
         </div>
         <div className="p-5">{children}</div>
       </div>
+    </div>
+  );
+}
+
+export type ToastMessage = {
+  id: string;
+  title: string;
+  description?: string;
+  tone?: "success" | "neutral";
+};
+
+export function ToastViewport({ messages, onDismiss }: { messages: ToastMessage[]; onDismiss: (id: string) => void }) {
+  if (!messages.length) return null;
+  return (
+    <div className="fixed bottom-20 right-4 z-[60] grid w-[calc(100%-2rem)] max-w-sm gap-2 lg:bottom-4">
+      {messages.map((message) => (
+        <div key={message.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl">
+          <div className="flex gap-3">
+            <div className={cn("mt-0.5", message.tone === "success" ? "text-emerald-700" : "text-zinc-500")}>
+              {message.tone === "success" ? <CheckCircle2 size={18} /> : <Info size={18} />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-zinc-950">{message.title}</p>
+              {message.description && <p className="mt-1 text-sm text-zinc-500">{message.description}</p>}
+            </div>
+            <button className="text-zinc-400 hover:text-zinc-950" onClick={() => onDismiss(message.id)} aria-label="Dismiss notification">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -8,12 +8,12 @@ import {
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { Download, FileDown, Keyboard, MessageCircle, Plus, Repeat2, Search } from "lucide-react";
-import type { MockDb, Order, OrderLine, OrderStatus, PackingStatus, Product } from "../../types";
+import { Download, FileDown, Keyboard, MessageCircle, Plus, Printer, Repeat2, Search } from "lucide-react";
+import type { MockDb, Order, OrderLine, OrderStatus, PackingStatus } from "../../types";
 import { orderStatuses, packingStatuses } from "../../types";
 import { PageHeader } from "../../components/Shell";
 import { Badge, Button, Card, Drawer, Input, Select, Textarea, cn } from "../../components/ui";
-import { exportOrdersCsv, downloadInvoice } from "../../utils/csv";
+import { exportOrdersCsv, downloadInvoice, printInvoice } from "../../utils/csv";
 import { money, today } from "../../utils/format";
 import { repeatPreviousOrder } from "../../services/mockDb";
 
@@ -43,7 +43,7 @@ export function OrdersModule({
     const needle = globalSearch.toLowerCase();
     return db.orders.filter((order) => {
       const matchesStatus = statusFilter === "All" || order.status === statusFilter;
-      const haystack = `${order.orderNumber} ${order.invoiceNumber} ${order.storeName} ${order.contactPerson} ${order.phone} ${order.route}`.toLowerCase();
+      const haystack = `${order.orderNumber} ${order.invoiceNumber} ${order.storeName} ${order.contactPerson} ${order.phone} ${order.route} ${order.status} ${order.packingStatus}`.toLowerCase();
       return matchesStatus && haystack.includes(needle);
     });
   }, [db.orders, globalSearch, statusFilter]);
@@ -106,6 +106,7 @@ export function OrdersModule({
       />
 
       <OrderComposer db={db} createOrder={createOrder} />
+      <PipelineBoard orders={db.orders} onOpen={setSelectedOrderId} />
 
       <Card className="mt-5 overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-zinc-200 p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -177,9 +178,9 @@ function OrderComposer({ db, createOrder }: { db: MockDb; createOrder: OrdersMod
   const customer = db.customers.find((candidate) => candidate.id === customerId);
   const previousQuantities = repeatPreviousOrder(db, customerId);
   const selectedCount = Object.values(quantities).filter(Boolean).length;
+  const productsToOrder = db.products.filter((product) => product.active);
 
-  const lines = db.products
-    .filter((product) => product.active)
+  const lines = productsToOrder
     .map((product) => ({
       productId: product.id,
       sku: product.sku,
@@ -269,7 +270,43 @@ function OrderComposer({ db, createOrder }: { db: MockDb; createOrder: OrdersMod
             </Badge>
           </div>
 
-          <div className="max-h-[430px] overflow-auto rounded-xl border border-zinc-200">
+          <div className="grid gap-2 md:hidden">
+            {productsToOrder.map((product) => {
+              const recommended = customer?.preferredProductIds.includes(product.id) || previousQuantities[product.id];
+              const quantity = Number(quantities[product.id] || 0);
+              return (
+                <div key={product.id} className={cn("rounded-xl border border-zinc-200 bg-white p-3", Boolean(recommended) && "border-emerald-200 bg-emerald-50/40")}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{product.name}</p>
+                      <p className="text-xs text-zinc-500">
+                        {product.sku} · {product.unit} · {money(product.price)}
+                      </p>
+                    </div>
+                    {recommended && <Badge tone="green">Suggested</Badge>}
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <Input
+                      aria-label={`Quantity for ${product.name}`}
+                      type="number"
+                      min="0"
+                      value={quantity || ""}
+                      onChange={(event) => updateQuantity(product.id, Number(event.target.value))}
+                      className="w-20"
+                    />
+                    {[1, 5, 10].map((amount) => (
+                      <button key={amount} onClick={() => quickAdd(product.id, amount)} className="rounded-md bg-zinc-100 px-3 py-2 text-xs font-semibold hover:bg-zinc-200">
+                        +{amount}
+                      </button>
+                    ))}
+                    <span className="ml-auto text-sm font-semibold">{money(quantity * product.price)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="hidden max-h-[430px] overflow-auto rounded-xl border border-zinc-200 md:block">
             <table className="w-full min-w-[720px] text-sm">
               <thead className="sticky top-0 bg-zinc-50 text-left text-xs uppercase tracking-[0.14em] text-zinc-500">
                 <tr>
@@ -282,7 +319,7 @@ function OrderComposer({ db, createOrder }: { db: MockDb; createOrder: OrdersMod
                 </tr>
               </thead>
               <tbody>
-                {db.products.filter((product) => product.active).map((product, index) => {
+                {productsToOrder.map((product, index) => {
                   const recommended = customer?.preferredProductIds.includes(product.id) || previousQuantities[product.id];
                   const quantity = Number(quantities[product.id] || 0);
                   return (
@@ -362,6 +399,53 @@ function OrderComposer({ db, createOrder }: { db: MockDb; createOrder: OrdersMod
   );
 }
 
+function PipelineBoard({ orders, onOpen }: { orders: Order[]; onOpen: (orderId: string) => void }) {
+  const activeStatuses: OrderStatus[] = ["Submitted", "Confirmed", "Packed", "Ready"];
+
+  return (
+    <Card className="mt-5 p-4">
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="font-semibold">Status pipeline and shipment batches</h2>
+          <p className="text-sm text-zinc-500">A dispatch-first view for confirmation, packing, staging, and route grouping.</p>
+        </div>
+        <Badge tone="dark">{orders.filter((order) => order.status !== "Completed" && order.status !== "Cancelled").length} active orders</Badge>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-4">
+        {activeStatuses.map((status) => {
+          const statusOrders = orders.filter((order) => order.status === status);
+          return (
+            <div key={status} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">{status}</h3>
+                <Badge tone={status === "Submitted" ? "amber" : "blue"}>{statusOrders.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {statusOrders.map((order) => (
+                  <button key={order.id} onClick={() => onOpen(order.id)} className="w-full rounded-xl bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">{order.storeName}</p>
+                        <p className="mt-1 text-xs text-zinc-500">{order.route} · {order.batch}</p>
+                      </div>
+                      <p className="text-sm font-semibold">{money(order.total)}</p>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
+                      <span>{order.packingStatus}</span>
+                      {order.notesAlert && <Badge tone="amber">Notes</Badge>}
+                    </div>
+                  </button>
+                ))}
+                {!statusOrders.length && <p className="rounded-xl border border-dashed border-zinc-300 p-3 text-center text-xs text-zinc-400">No orders</p>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function OrderDrawer({
   order,
   onStatus,
@@ -402,6 +486,9 @@ function OrderDrawer({
         </Button>
         <Button variant="secondary" onClick={() => downloadInvoice(order)}>
           <Download size={16} /> Download Invoice
+        </Button>
+        <Button variant="secondary" onClick={() => printInvoice(order)}>
+          <Printer size={16} /> Print / Save PDF
         </Button>
         <a
           className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-950 shadow-sm hover:border-zinc-300"

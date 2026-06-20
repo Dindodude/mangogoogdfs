@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { MockDb, Product, Unit } from "../../types";
 import { units } from "../../types";
 import { PageHeader } from "../../components/Shell";
-import { Badge, Button, Card, Input, Select } from "../../components/ui";
+import { Badge, Button, Card, Drawer, Input, Select } from "../../components/ui";
 import { marginFor } from "../../utils/analytics";
 import { money, percent } from "../../utils/format";
 
@@ -27,6 +27,7 @@ export function ProductsModule({
     cost: 0,
     seasonalAvailability: "Available",
   });
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   function submitProduct(event: React.FormEvent) {
     event.preventDefault();
@@ -81,7 +82,9 @@ export function ProductsModule({
                 <tr key={product.id} className="border-t border-zinc-100 align-top">
                   <td className="px-4 py-3">
                     <Input value={product.name} onChange={(event) => updateProduct(product.id, { name: event.target.value })} className="w-56" />
-                    <p className="mt-1 text-xs text-zinc-500">{product.sku}</p>
+                    <button onClick={() => setSelectedProduct(product)} className="mt-1 text-xs font-semibold text-zinc-500 hover:text-zinc-950 hover:underline">
+                      {product.sku} · view controls
+                    </button>
                   </td>
                   <td className="px-4 py-3">
                     <Input value={product.category} onChange={(event) => updateProduct(product.id, { category: event.target.value })} className="w-36" />
@@ -119,6 +122,59 @@ export function ProductsModule({
           </table>
         </div>
       </Card>
+
+      <Drawer open={Boolean(selectedProduct)} title={selectedProduct?.name ?? "Product"} onClose={() => setSelectedProduct(null)}>
+        {selectedProduct && <ProductDrawer product={selectedProduct} />}
+      </Drawer>
+    </div>
+  );
+}
+
+function ProductDrawer({ product }: { product: Product }) {
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl bg-zinc-50 p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">SKU</p>
+          <p className="mt-1 font-semibold">{product.sku}</p>
+        </div>
+        <div className="rounded-xl bg-zinc-50 p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Margin</p>
+          <p className="mt-1 font-semibold">{percent(marginFor(product))}</p>
+        </div>
+        <div className="rounded-xl bg-zinc-50 p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Season</p>
+          <p className="mt-1 font-semibold">{product.seasonalAvailability}</p>
+        </div>
+      </div>
+      <div className="rounded-xl border border-zinc-200 p-4">
+        <h3 className="font-semibold">Current economics</h3>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div>
+            <p className="text-xs text-zinc-500">Sell price</p>
+            <p className="font-semibold">{money(product.price)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-500">Cost</p>
+            <p className="font-semibold">{money(product.cost)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-500">Gross profit / unit</p>
+            <p className="font-semibold">{money(product.price - product.cost)}</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3 className="mb-2 font-semibold">Pricing history</h3>
+        <div className="space-y-2">
+          {product.priceHistory.slice().reverse().map((point) => (
+            <div key={`${product.id}-${point.date}-${point.price}`} className="flex items-center justify-between rounded-xl bg-zinc-50 p-3">
+              <p className="text-sm font-semibold">{point.date}</p>
+              <p className="text-sm text-zinc-500">price {money(point.price)} · cost {money(point.cost)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
